@@ -1,0 +1,170 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+```{r}
+library(readr)
+trucks <- read_csv("trucks.csv")
+View(trucks)
+head(trucks)
+```
+
+```{r}
+ggplot(trucks, aes(Distance, Speeding)) +
+  geom_point(alpha = 0.4) + theme_bw()
+```
+
+Task 1-
+Huge relationship. Since "speeding is really a measure of time, this would mean that the drivers were mostly driving for a short period of time but they were either going slowly for 10 minutes and didn't go far, or they were driving very fast for 10 minutes and covered a much greater distance. Either way, no one drove a medium distance. ALso, very few people drove for a long time, and no one drove for a long time over a short distance. I would guess ther should be 4 clusters.
+
+
+```{r}
+str(trucks)
+summary(trucks)
+```
+
+```{r}
+kmeans_recipe = recipe(~ Distance + Speeding, trucks) 
+
+trucks_dummy = kmeans_recipe %>% 
+  step_dummy(all_nominal(), one_hot = TRUE) %>%
+  step_scale(all_numeric()) %>%
+  step_center(all_numeric()) 
+
+trucks_dummy = prep(trucks_dummy, trucks) #prepares the recipe
+
+trucks_cleaned = bake(trucks_dummy, trucks) #applies the recipe and yields a data frame
+```
+
+
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 2) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts
+```
+
+
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+
+```{r}
+p1 = 
+  ggplot(assignments, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p1
+```
+```{r}
+set.seed(412)
+clusts2 = 
+  tibble(k = 1:8) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts2
+```
+
+```{r}
+clusters2 = 
+  clusts2 %>%
+  unnest(cols = c(tidied))
+
+assignments2 = 
+  clusts2 %>% 
+  unnest(cols = c(augmented))
+
+clusterings2 = 
+  clusts2 %>%
+  unnest(cols = c(glanced))
+```
+
+
+
+```{r}
+p1 = 
+  ggplot(assignments2, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p1
+```
+Task 5-
+I am still convinced that 4 is the best as it evenly divides the people who drive far and short as well as the people for a long time and those that drive for a shorter amount of time.
+
+
+```{r}
+set.seed(64)
+clusts = 
+  tibble(k = 4) %>%
+  mutate(
+    kclust = map(k, ~kmeans(trucks_cleaned, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, trucks_cleaned)
+  )
+
+clusts
+```
+
+```{r}
+clusters = 
+  clusts %>%
+  unnest(cols = c(tidied))
+
+assignments = 
+  clusts %>% 
+  unnest(cols = c(augmented))
+
+clusterings = 
+  clusts %>%
+  unnest(cols = c(glanced))
+```
+
+```{r}
+p1 = 
+  ggplot(assignments, aes(x = Distance, y = Speeding)) +
+  geom_point(aes(color = .cluster), alpha = 0.8) + 
+  facet_wrap(~ k)
+p1
+```
+
+Task 6-
+This looks great. This clearly has 4 defined parts and each of them has roughly the same amount of drivers. 4 is my choice for the most optimal amount of clusters.
+
+
+
+
+
+
+
+
+

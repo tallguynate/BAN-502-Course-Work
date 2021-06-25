@@ -1,0 +1,226 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+: tidyverse, tidymodels, caret, gridExtra, vip, and ranger.
+
+```{r, include = FALSE}
+library(tidyverse)
+library(tidymodels)
+library(gridExtra)
+library(vip)
+library(mice) #package for imputation
+library(VIM) #visualizing missingness
+library(ranger) #for random forests
+library(randomForest) #also for random forests
+library(caret)
+```
+
+```{r}
+library(readr)
+drug <- read_csv("drug_data-1.csv")
+View(drug)
+head(drug)
+```
+
+```{r}
+names(drug) = c("ID", "Age", "Gender", "Education", "Country", "Ethnicity",
+"Nscore", "Escore", "Oscore", "Ascore", "Cscore", "Impulsive",
+"SS", "Alcohol", "Amphet", "Amyl", "Benzos", "Caff", "Cannabis",
+"Choc", "Coke", "Crack", "Ecstasy", "Heroin", "Ketamine", "Legalh",
+"LSD", "Meth", "Mushrooms", "Nicotine", "Semer", "VSA")
+str(drug)
+head(drug)
+```
+
+```{r}
+drug[drug == "CL0"] = "No"
+drug[drug == "CL1"] = "No"
+drug[drug == "CL2"] = "Yes"
+drug[drug == "CL3"] = "Yes"
+drug[drug == "CL4"] = "Yes"
+drug[drug == "CL5"] = "Yes"
+drug[drug == "CL6"] = "Yes"
+head(drug)
+```
+
+```{r}
+drug_clean = drug %>% mutate_at(vars(Age:Ethnicity), funs(as_factor)) %>%
+mutate(Age = factor(Age, labels = c("18_24", "25_34", "35_44",
+"45_54", "55_64", "65_"))) %>%
+mutate(Gender = factor(Gender, labels = c("Male", "Female"))) %>%
+mutate(Education = factor(Education, labels =
+c("Under16", "At16", "At17", "At18", "SomeCollege",
+"ProfessionalCert", "Bachelors", "Masters", "Doctorate"))) %>%
+mutate(Country = factor(Country,
+labels = c("USA", "NewZealand", "Other", "Australia",
+"Ireland","Canada","UK"))) %>%
+mutate(Ethnicity = factor(Ethnicity,
+labels = c("Black", "Asian", "White", "White/Black", "Other",
+"White/Asian", "Black/Asian"))) %>%
+mutate_at(vars(Alcohol:VSA), funs(as_factor)) %>%
+select(-ID)
+
+```
+
+```{r}
+drug_clean = drug_clean %>% select(!(Alcohol:Mushrooms)) %>% select(!(Semer:VSA))
+names(drug_clean)
+head(drug_clean)
+view(drug_clean)
+```
+
+```{r}
+set.seed(1234) 
+drug_split = initial_split(drug_clean, prop = 0.7, strata = Nicotine) #70% in training
+train = training(drug_split)
+test = testing(drug_split)
+imp_age = mice(drug_clean, m=5, method='pmm', printFlag=FALSE)
+
+drug_complete = complete(imp_age) 
+summary(drug_complete)
+```
+
+```{r}
+drug_recipe = recipe(drug_clean, Nicotine ~., drug_complete) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest() %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+drug_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(drug_recipe)
+
+set.seed(123)
+drug_fit = fit(drug_wflow, drug_complete)
+```
+
+```{r}
+set.seed(123)
+rf_folds = vfold_cv(train, v = 5)
+```
+
+
+```{r}
+drug_fit
+
+predRF = predict(drug_fit, drug_complete)
+head(predRF)
+
+confusionMatrix(predRF$.pred_class, drug_complete$Nicotine, positive = "Yes")
+```
+
+```{r}
+drug_recipe = recipe(Nicotine ~., train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+drug_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(drug_recipe)
+
+rf_grid = grid_regular(
+  mtry(range = c(2, 8)), #these values determined through significant trial and error
+  min_n(range = c(5, 20)), #these values determined through significant trial and error
+  levels = 10
+)
+
+set.seed(123)
+rf_res = tune_grid(
+  drug_wflow,
+  resamples = rf_folds,
+  grid = 10 #try 20 different combinations of the random forest tuning parameters
+)
+```
+```{r}
+rf_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+```
+
+```{r}
+drug_recipe = recipe(Nicotine ~., train) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+
+rf_model = rand_forest(mtry = tune(), min_n = tune(), trees = 100) %>% #add tuning of mtry and min_n parameters
+  #setting trees to 100 here should also speed things up a bit, but more trees might be better
+  set_engine("ranger", importance = "permutation") %>% #added importance metric
+  set_mode("classification")
+
+drug_wflow = 
+  workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(drug_recipe)
+
+rf_grid = grid_regular(
+  mtry(range = c(2, 4)), #these values determined through significant trial and error
+  min_n(range = c(15, 20)), #these values determined through significant trial and error
+  levels = 10
+)
+
+set.seed(123)
+rf_res2 = tune_grid(
+  drug_wflow,
+  resamples = rf_folds,
+  grid = 10 #try 20 different combinations of the random forest tuning parameters
+)
+```
+
+```{r}
+rf_res2 %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, min_n, mtry) %>%
+  pivot_longer(min_n:mtry,
+    values_to = "value",
+    names_to = "parameter"
+  ) %>%
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x") +
+  labs(x = NULL, y = "Accuracy")
+```
+
+After manually changing the mtry lower and the min-n hgher, I was able to successfully manipulate the model to show better positive positive correlation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
